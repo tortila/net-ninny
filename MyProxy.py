@@ -50,15 +50,14 @@ class MyProxy:
             self.server.listen(MAX_CONNECTIONS)
             print "Successfully created server, listening for connections..."
         except socket.error, msg:
-            print "Failed to create socket! Error code: " + str(msg[0]) +
-            ", Error message: " + msg[1]
+            print "Failed to create socket! Error code: " , str(msg[0]) ,
+            ", Error message: " , msg[1]
             sys.exit(1)
 
     def main_loop(self):
         self.inputs.append(self.server)  # first available socket is server
         while 1:
-            inputs_ready, outputs_ready, except_ready =
-            select.select(self.inputs, [], [])
+            inputs_ready, outputs_ready, except_ready = select.select(self.inputs, [], [])
             # 
             for self.socket in inputs_ready:
                 # each new connection will trigger accept on socket
