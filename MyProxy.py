@@ -32,6 +32,8 @@ arbitrary_port = 9999  # default, should be changed on execution
 MAX_CONNECTIONS = 200
 BUFFER_SIZE = 4096
 DEFAULT_FORWARD_HOST = "www.google.com"  # temporary
+BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
+BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
 
 
 class MyProxy:
@@ -53,10 +55,12 @@ class MyProxy:
         except socket.error, msg:
             print "Failed to create socket! Error code: ", str(msg[0]),", Error message: ", msg[1]
             sys.exit(1)
+
         # load forbidden keywords
         self.reader = FileReader("forbidden.txt")
 
     def main_loop(self):
+        self.socket = None
         self.inputs.append(self.server)  # first available socket is server
         while 1:
             inputs_ready, outputs_ready, except_ready = select.select(self.inputs, [], [])
@@ -76,9 +80,13 @@ class MyProxy:
                     self.trigger_recv()
 
     # creating a new connection with the server and accepting connection from client
-    def trigger_accept(self):
+    def direct_connection(self, hostname):
+        # temporary: if hostname is None, redirect to default
+        # (next thing to do: do not redirect at all)
+        if hostname is None:
+            hostname = DEFAULT_FORWARD_HOST
         # start new connection with server
-        connection = Connect().start(DEFAULT_FORWARD_HOST, HTTP_PORT)
+        connection = Connect().start(hostname, HTTP_PORT)
         client_socket, client_addr = self.server.accept()
         if connection:
             print "New connection established with: ", client_addr
@@ -92,6 +100,15 @@ class MyProxy:
             print "Cannot establish connection with remote server."
             print "Closing connection with client: ", client_addr
             client_socket.close()
+
+    def trigger_accept(self):
+        self.direct_connection(None)
+
+    def trigger_bad_url(self):
+        self.direct_connection(BAD_URL_HOST)
+
+    def trigger_bad_content(self):
+        self.direct_connection(BAD_CONTENT_HOST)
 
     # disable and remove socket connection
     def trigger_close(self):
@@ -110,11 +127,23 @@ class MyProxy:
     # actual data processing (both ways)
     # data received from one endpoint is sent to another
     # no matter if client->server or server->client, because we keep track of them in a dictionary
+    # returns False on bad keyword in url
     def trigger_recv(self):
         data = self.data
+        # print data - for better debugging
         # parsing goes here
-        print data
+        for line in data.split("\n"):
+            print "---", line
+            if "GET" in line:
+                if(self.forbidden_keyword(line)):
+                    print "\n\n\n\nBAD URL\n\n\n\n"
         self.channel[self.socket].send(data)
+
+    def forbidden_keyword(self, line):
+        if any (s in line for s in self.reader.keywords):
+            return True
+        else:
+            return False
 
 # for calling class directly from terminal
 if __name__ == "__main__":

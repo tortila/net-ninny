@@ -4,12 +4,12 @@ import socket
 class Connect:
 
     def __init__(self):
-    	# create new socker (TCP, IPv4)
+        # create new socker (TCP, IPv4)
         self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def start(self, host, port):
         try:
-        	# establish connection
+            # establish connection
             self.connection.connect((host, port))
             return self.connection
         except Exception, e:
