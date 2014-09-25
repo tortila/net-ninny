@@ -24,6 +24,7 @@ import socket
 import sys  # for exit
 import select
 from Connect import Connect
+from FileReader import FileReader
 
 HTTP_PORT = 80
 HOST = ""  # default; any address
@@ -50,9 +51,10 @@ class MyProxy:
             self.server.listen(MAX_CONNECTIONS)
             print "Successfully created server, listening for connections..."
         except socket.error, msg:
-            print "Failed to create socket! Error code: " , str(msg[0]) ,
-            ", Error message: " , msg[1]
+            print "Failed to create socket! Error code: ", str(msg[0]),", Error message: ", msg[1]
             sys.exit(1)
+        # load forbidden keywords
+        self.reader = FileReader("forbidden.txt")
 
     def main_loop(self):
         self.inputs.append(self.server)  # first available socket is server
@@ -126,6 +128,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
+        print "Forbidden keywords:", myProxy.reader.keywords
         myProxy.main_loop()
     except KeyboardInterrupt:
         print " ---> Caught SIGINT. Stopping server..."
