@@ -1,12 +1,10 @@
-
-
 import os,sys,thread,socket
 
 #********* CONSTANT VARIABLES *********
 BACKLOG = 50            # how many pending connections queue will hold
 MAX_DATA_RECV = 999999  # max number of bytes we receive at once
 DEBUG = True            # set to True to see the debug msgs
-BLOCKED = []            # just an example. Remove with [""] for no blocking at all.
+BLOCKED = ["spongebob", "facebook"]            # just an example. Remove with [""] for no blocking at all.
 
 #**************************************
 #********* MAIN PROGRAM ***************
@@ -23,7 +21,7 @@ def main():
     # host and port info.
     host = ''               # blank for localhost
     
-    print "Proxy Server Running on ",host,":",port
+    print "Proxy Server Running on ", host, ":", port
 
     try:
         # create a socket
@@ -38,7 +36,7 @@ def main():
     except socket.error, (value, message):
         if s:
             s.close()
-        print "Could not open socket:", message
+        print "Could not open socket: ", message
         sys.exit(1)
 
     # get the connection from client
@@ -59,7 +57,7 @@ def printout(type,request,address):
     elif "Reset" in type:
         colornum = 93
 
-    print "\033[",colornum,"m",address[0],"\t",type,"\t",request,"\033[0m"
+    print "\033[", colornum, "m", address[0], "\t", type, "\t", request, "\033[0m"
 
 #*******************************************
 #********* PROXY_THREAD FUNC ***************
@@ -78,12 +76,12 @@ def proxy_thread(conn, client_addr):
 
     for i in range(0,len(BLOCKED)):
         if BLOCKED[i] in url:
-            printout("Blacklisted",first_line,client_addr)
+            printout("Blacklisted: ", first_line, client_addr)
             conn.close()
-            sys.exit(1)
+            thread.exit()
 
 
-    printout("Request",first_line,client_addr)
+    printout("Request: ", first_line, client_addr)
     # print "URL:",url
     # print
     
@@ -132,11 +130,17 @@ def proxy_thread(conn, client_addr):
             s.close()
         if conn:
             conn.close()
-        printout("Peer Reset",first_line,client_addr)
-        sys.exit(1)
+        printout("Peer Reset: ", first_line, client_addr)
+    finally:
+        thread.exit()
+
 #********** END PROXY_THREAD ***********
     
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print "\n ---> Caught SIGINT. Stopping server..."
+        sys.exit(1)
 
 

@@ -22,7 +22,7 @@ TODO:
 """
 import socket
 import sys  # for exit
-import select
+import thread
 from Connect import Connect
 from FileReader import FileReader
 
@@ -30,8 +30,8 @@ HTTP_PORT = 80
 HOST = ""  # default; any address
 arbitrary_port = 9999  # default, should be changed on execution
 MAX_CONNECTIONS = 200
+DEFAULT_URL = "https://www.google.se/?gfe_rd=cr&ei=OqUoVMbVKYmr8weTrILABA&gws_rd=ssl"
 BUFFER_SIZE = 4096
-DEFAULT_FORWARD_HOST = "www.google.com"  # temporary
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
 BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
 
@@ -60,90 +60,70 @@ class MyProxy:
         self.reader = FileReader("forbidden.txt")
 
     def main_loop(self):
-        self.socket = None
-        self.inputs.append(self.server)  # first available socket is server
         while 1:
-            inputs_ready, outputs_ready, except_ready = select.select(self.inputs, [], [])
-            # 
-            for self.socket in inputs_ready:
-                # each new connection will trigger accept on socket
-                if self.socket == self.server:
-                    self.trigger_accept()
-                    break
-                # if connection is not new, treat it as incoming data (no matter from which endpoint)
-                self.data = self.socket.recv(BUFFER_SIZE)
-                # if data is empty, then treat it as a close request
-                if len(self.data) == 0:
-                    self.trigger_close()
-                # otherwise send incoming data to appropriate endpoint
+            connection, client_addr = self.server.accept()
+            thread.start_new_thread(self.serve_connection, (connection, client_addr))
+        self.server.close()
+
+    def print_info(self, type, request, address):
+        print address[0], "\t", type.upper(), "\t", request
+
+    def serve_connection(self, connection, client_addr):
+        data = connection.recv(BUFFER_SIZE)
+        first_line = data.split("\n")[0]
+        # in case some requests were not caught
+        url = DEFAULT_URL
+        webserver = self.parse_url_to_webserver(url)
+        blocked = False
+        if "GET" in first_line:
+            url = first_line.split(" ")[1]
+            webserver = self.parse_url_to_webserver(url)
+            self.print_info("request", first_line, client_addr)
+            if any (s in first_line for s in self.reader.keywords):
+                self.print_info("blacklisted", first_line, client_addr)
+                webserver = self.parse_url_to_webserver(BAD_URL_HOST)
+                blocked = True
+        # requested url contains forbidden keywords
+        # replace url and host in get request
+        if(blocked):
+            for line in data.split("\n"):
+                if "GET" in line:
+                    weburl = line.split(" ")[1]
+                    data = data.replace(weburl, BAD_URL_HOST)
+                if "Host" in line:
+                    hostname = line.split(" ")[1]
+                    data = data.replace(hostname, self.parse_url_to_webserver(BAD_URL_HOST))
+        try:
+            served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            served_socket.connect((webserver, HTTP_PORT))
+            served_socket.send(data)
+            while 1:
+                # receive data from web server
+                data = served_socket.recv(BUFFER_SIZE)
+                if (len(data) > 0):
+                    # send to browser
+                    connection.send(data)
                 else:
-                    self.trigger_recv()
+                    break
+            served_socket.close()
+        except socket.error, (value, message):
+            self.print_info("Peer reset", first_line, client_addr)
 
-    # creating a new connection with the server and accepting connection from client
-    def direct_connection(self, hostname):
-        # temporary: if hostname is None, redirect to default
-        # (next thing to do: do not redirect at all)
-        if hostname is None:
-            hostname = DEFAULT_FORWARD_HOST
-        # start new connection with server
-        connection = Connect().start(hostname, HTTP_PORT)
-        client_socket, client_addr = self.server.accept()
-        if connection:
-            print "New connection established with: ", client_addr
-            # add client and server endpoints to inputs (they will be listened)
-            self.inputs.append(client_socket)
-            self.inputs.append(connection)
-            # add endpoints to dictionary (to keep track of which client connects to which server)
-            self.channel[client_socket] = connection
-            self.channel[connection] = client_socket
+        finally:
+            connection.close()
+            thread.exit()
+
+    def parse_url_to_webserver(self, url):
+        http_pos = url.find("://")
+        if http_pos == -1:
+            temp = url
         else:
-            print "Cannot establish connection with remote server."
-            print "Closing connection with client: ", client_addr
-            client_socket.close()
+            temp = url[(http_pos+3):]
+        webserver_pos = temp.find("/")
+        if webserver_pos == -1:
+            webserver_pos = len(temp)
+        return temp[:webserver_pos]
 
-    def trigger_accept(self):
-        self.direct_connection(None)
-
-    def trigger_bad_url(self):
-        self.direct_connection(BAD_URL_HOST)
-
-    def trigger_bad_content(self):
-        self.direct_connection(BAD_CONTENT_HOST)
-
-    # disable and remove socket connection
-    def trigger_close(self):
-        print self.socket.getpeername(), " has disconnected"
-        # remove endpoints from inputs (so they will not be listened)
-        self.inputs.remove(self.socket)
-        self.inputs.remove(self.channel[self.socket])
-        out = self.channel[self.socket]
-        # close both connections
-        self.channel[out].close()
-        self.channel[self.socket].close()
-        # remove endpoints from dictionary (they will no longer be referenced)
-        del self.channel[out]
-        del self.channel[self.socket]
-
-    # actual data processing (both ways)
-    # data received from one endpoint is sent to another
-    # no matter if client->server or server->client, because we keep track of them in a dictionary
-    # returns False on bad keyword in url
-    def trigger_recv(self):
-        data = self.data
-        # print data - for better debugging
-        # parsing goes here
-        for line in data.split("\n"):
-            print "---", line
-            if "GET" in line:
-                if(self.forbidden_keyword(line)):
-                    print "\n\n\n\nBAD URL\n\n\n\n"
-        self.channel[self.socket].send(data)
-
-    def forbidden_keyword(self, line):
-        if any (s in line for s in self.reader.keywords):
-            return True
-        else:
-            return False
 
 # for calling class directly from terminal
 if __name__ == "__main__":
