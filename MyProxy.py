@@ -23,7 +23,6 @@ TODO:
 import socket
 import sys  # for exit
 import thread
-from Connect import Connect
 from FileReader import FileReader
 
 HTTP_PORT = 80
@@ -74,7 +73,7 @@ class MyProxy:
         # in case some requests were not caught
         url = DEFAULT_URL
         webserver = self.parse_url_to_webserver(url)
-        blocked = False
+        badUrl = False
         if "GET" in first_line:
             url = first_line.split(" ")[1]
             webserver = self.parse_url_to_webserver(url)
@@ -82,10 +81,10 @@ class MyProxy:
             if any (s in first_line for s in self.reader.keywords):
                 self.print_info("blacklisted", first_line, client_addr)
                 webserver = self.parse_url_to_webserver(BAD_URL_HOST)
-                blocked = True
+                badUrl = True
         # requested url contains forbidden keywords
         # replace url and host in get request
-        if(blocked):
+        if(badUrl):
             for line in data.split("\n"):
                 if "GET" in line:
                     weburl = line.split(" ")[1]
@@ -97,9 +96,13 @@ class MyProxy:
             served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             served_socket.connect((webserver, HTTP_PORT))
             served_socket.send(data)
+            badContent = False
             while 1:
                 # receive data from web server
                 data = served_socket.recv(BUFFER_SIZE)
+                ###
+                # parsing for forbidden content goes here
+                ###
                 if (len(data) > 0):
                     # send to browser
                     connection.send(data)
@@ -118,7 +121,7 @@ class MyProxy:
         if http_pos == -1:
             temp = url
         else:
-            temp = url[(http_pos+3):]
+            temp = url[(http_pos + 3):]
         webserver_pos = temp.find("/")
         if webserver_pos == -1:
             webserver_pos = len(temp)
@@ -130,11 +133,11 @@ if __name__ == "__main__":
     try:
         # user-defined port number
         arbitrary_port = int(raw_input("Arbitrary port for proxy server: "))
+    except ValueError, e:
+        print "Provided value is not an integer. Starting server at default port: ", arbitrary_port
+    finally:
         # start proxy on that port
         myProxy = MyProxy(HOST, arbitrary_port)
-    except ValueError, e:
-        print arbitrary_port, " is not a valid integer!"
-        sys.exit(1)
 
     try:
         print "Forbidden keywords:", myProxy.reader.keywords
