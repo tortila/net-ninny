@@ -117,7 +117,7 @@ def proxy_thread(conn, client_addr):
         while 1:
             # receive data from web server
             data = s.recv(MAX_DATA_RECV)
-            
+            print "Receiving data......"
             if (len(data) > 0):
                 # send to browser
                 conn.send(data)
@@ -125,6 +125,10 @@ def proxy_thread(conn, client_addr):
                 break
         s.close()
         conn.close()
+    except KeyboardInterrupt:
+        print " ---> Caught SIGINT...."
+        s.close()
+        sys.exit(1)
     except socket.error, (value, message):
         if s:
             s.close()
