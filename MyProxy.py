@@ -30,7 +30,7 @@ HOST = ""  # default; any address
 arbitrary_port = 9999  # default, should be changed on execution
 MAX_CONNECTIONS = 200
 DEFAULT_URL = "https://www.google.se/?gfe_rd=cr&ei=OqUoVMbVKYmr8weTrILABA&gws_rd=ssl"
-BUFFER_SIZE = 4096
+BUFFER_SIZE = 8192
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
 BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
 
@@ -82,33 +82,64 @@ class MyProxy:
                 self.print_info("blacklisted", first_line, client_addr)
                 webserver = self.parse_url_to_webserver(BAD_URL_HOST)
                 badUrl = True
-        # requested url contains forbidden keywords
+
+        web_url = ""
+        hostname = ""
+        # remember hostname and web_url of GET request
+        for line in data.split("\n"):
+            if "GET" in line:
+                web_url = line.split(" ")[1]
+            if "Host" in line:
+                hostname = line.split(" ")[1]
+
+        # if requested url contains forbidden keywords,
         # replace url and host in get request
-        if(badUrl):
-            for line in data.split("\n"):
-                if "GET" in line:
-                    weburl = line.split(" ")[1]
-                    data = data.replace(weburl, BAD_URL_HOST)
-                if "Host" in line:
-                    hostname = line.split(" ")[1]
-                    data = data.replace(hostname, self.parse_url_to_webserver(BAD_URL_HOST))
+        if badUrl:
+            data = data.replace(web_url, BAD_URL_HOST)
+            data = data.replace(hostname, self.parse_url_to_webserver(BAD_URL_HOST))
+        # establish connection and send GET request
         try:
             served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             served_socket.connect((webserver, HTTP_PORT))
             served_socket.send(data)
             badContent = False
             while 1:
-                # receive data from web server
-                data = served_socket.recv(BUFFER_SIZE)
-                ###
-                # parsing for forbidden content goes here
-                ###
-                if (len(data) > 0):
+                # receive response to GET request from web server
+                response_data = served_socket.recv(BUFFER_SIZE)
+                for line in response_data.split("\n"):
+                    if any (s in line for s in self.reader.keywords):
+                        badContent = True
+                        break  # break for-loop
+                if badContent == True:
+                    break  # break while-loop
+                # if break wasn't executed, send all data normally
+                if (len(response_data) > 0):
                     # send to browser
-                    connection.send(data)
+                    connection.send(response_data)
                 else:
-                    break
+                    break  # break, because 0-length data was sent = close connection
             served_socket.close()
+            if badContent:
+                # redirect connection and show web page with "bad content" error
+                data = data.replace(web_url, BAD_CONTENT_HOST)
+                data = data.replace(hostname, self.parse_url_to_webserver(BAD_CONTENT_HOST))
+                try:
+                    # create new connection and sent GET request for web page with "bad content" error msg
+                    served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    served_socket.connect((webserver, HTTP_PORT))
+                    served_socket.send(data)
+                    while 1:
+                        # receive response to GET request from web server
+                        response_data = served_socket.recv(BUFFER_SIZE)
+                        if (len(response_data) > 0):
+                            # send to browser
+                            connection.send(response_data)
+                        else:
+                            break  # break, because 0-length data was sent = close connection
+                    served_socket.close()
+                except socket.error:
+                    self.print_info("Peer reset", first_line, client_addr)
+
         except socket.error, (value, message):
             self.print_info("Peer reset", first_line, client_addr)
 
