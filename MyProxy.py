@@ -28,7 +28,7 @@ from FileReader import FileReader
 HTTP_PORT = 80
 HOST = ""  # default; any address
 arbitrary_port = 9999  # default, should be changed on execution
-MAX_CONNECTIONS = 200
+MAX_CONNECTIONS = 1000
 DEFAULT_URL = "https://www.google.se/?gfe_rd=cr&ei=OqUoVMbVKYmr8weTrILABA&gws_rd=ssl"
 BUFFER_SIZE = 8192
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
@@ -80,7 +80,6 @@ class MyProxy:
             self.print_info("request", first_line, client_addr)
             if any (s in first_line for s in self.reader.keywords):
                 self.print_info("blacklisted", first_line, client_addr)
-                webserver = self.parse_url_to_webserver(BAD_URL_HOST)
                 badUrl = True
 
         web_url = ""
@@ -96,7 +95,9 @@ class MyProxy:
         # replace url and host in get request
         if badUrl:
             data = data.replace(web_url, BAD_URL_HOST)
-            data = data.replace(hostname, self.parse_url_to_webserver(BAD_URL_HOST))
+            webserver = self.parse_url_to_webserver(BAD_URL_HOST)
+            data = data.replace(hostname, webserver)
+        content_check_needed = self.check_for_content(web_url)
         # establish connection and send GET request
         try:
             served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -106,13 +107,17 @@ class MyProxy:
             while 1:
                 # receive response to GET request from web server
                 response_data = served_socket.recv(BUFFER_SIZE)
-                for line in response_data.split("\n"):
-                    if any (s in line for s in self.reader.keywords):
-                        badContent = True
-                        break  # break for-loop
-                if badContent == True:
-                    break  # break while-loop
-                # if break wasn't executed, send all data normally
+                # if needed, check for content
+                if content_check_needed:
+                    for line in response_data.split("\n"):
+                        if any (s in line.lower() for s in self.reader.keywords):
+                            badContent = True
+                            break  # break for-loop
+                    if badContent:
+                        break  # break while-loop
+                else:
+                    print ">> No checking for bad content for url: ", web_url
+                # if break wasn't executed (no bad content detected or no checking executed), send all data normally
                 if (len(response_data) > 0):
                     # send to browser
                     connection.send(response_data)
@@ -122,7 +127,8 @@ class MyProxy:
             if badContent:
                 # redirect connection and show web page with "bad content" error
                 data = data.replace(web_url, BAD_CONTENT_HOST)
-                data = data.replace(hostname, self.parse_url_to_webserver(BAD_CONTENT_HOST))
+                webserver = self.parse_url_to_webserver(BAD_CONTENT_HOST)
+                data = data.replace(hostname, webserver)
                 try:
                     # create new connection and sent GET request for web page with "bad content" error msg
                     served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -158,6 +164,12 @@ class MyProxy:
             webserver_pos = len(temp)
         return temp[:webserver_pos]
 
+    def check_for_content(self, url):
+        no_need_for_check = [".png", ".jpg", ".jpeg", ".js", ".cs", ".gif"]
+        if any (url.endswith(suffix) for suffix in no_need_for_check):
+            return False
+        else:
+            return True
 
 # for calling class directly from terminal
 if __name__ == "__main__":
