@@ -24,21 +24,20 @@ import socket
 import sys  # for exit
 import thread
 from FileReader import FileReader
+from Parser import Parser
 
 HTTP_PORT = 80
 HOST = ""  # default; any address
 arbitrary_port = 9999  # default, should be changed on execution
 MAX_CONNECTIONS = 1000
-DEFAULT_URL = "https://www.google.se/?gfe_rd=cr&ei=OqUoVMbVKYmr8weTrILABA&gws_rd=ssl"
 BUFFER_SIZE = 16384
+DEFAULT_URL = "http://www.google.com"
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
 BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
-
+SUFFIXES = [".png", ".jpg", ".jpeg", ".js", ".cs", ".gif"]  # these files wil be skipped on contennt checking
+FILE_NAME = "forbidden.txt"
 
 class MyProxy:
-
-    inputs = []  # stores all the avaiable sockets
-    channel = {}  # dictionary for associating endpoints: client-server
 
     def __init__(self, host, port):
         try:
@@ -56,7 +55,9 @@ class MyProxy:
             sys.exit(1)
 
         # load forbidden keywords
-        self.reader = FileReader("forbidden.txt")
+        self.reader = FileReader(FILE_NAME)
+        # init parser
+        self.parser = Parser(SUFFIXES)
 
     def main_loop(self):
         while 1:
@@ -79,13 +80,13 @@ class MyProxy:
         first_line = data.split("\n")[0]
         # in case some requests were not caught
         url = DEFAULT_URL
-        webserver = self.parse_url_to_webserver(url)
+        webserver = self.parser.url_to_webserver(url)
         badUrl = False
         # serve GET requests only
         if "GET" in first_line:
             # remember url
             url = first_line.split(" ")[1]
-            webserver = self.parse_url_to_webserver(url)
+            webserver = self.parser.url_to_webserver(url)
             self.print_info("request", first_line, client_addr)
             # check if url contains forbidden keywords
             badUrl = self.contains_keywords(first_line)
@@ -102,12 +103,12 @@ class MyProxy:
                 hostname = line.split(" ")[1]
 
         # if requested url contains forbidden keywords,
-        # replace url and host in get request
+        # create request for page with error message
         if badUrl:
             data = self.get_request(BAD_URL_HOST)
-            print data
+
         # if requested for file other than on specified list, check its content later
-        content_check_needed = self.check_for_content(web_url)
+        content_check_needed = self.parser.check_for_content(web_url)
 
         # establish connection and send GET request
         try:
@@ -136,35 +137,16 @@ class MyProxy:
             served_socket.close()
         except socket.error, (value, message):
             self.print_info("Peer reset", first_line, client_addr)
-
         finally:
             connection.close()
-            print "Connection closed.\nThread exiting..."
+            print "> Connection closed.\n\t> Thread exiting..."
             thread.exit()
 
-    def bad_content_response(self):
-        return "HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/badtest1.html\r\nConnection: close\r\n\r\n"
+    def redirect_response(self, url):
+        return "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\nConnection: close\r\n\r\n"
 
     def get_request(self, url):
-        return "GET " + url + " HTTP/1.1" + "\r\nHost:" + self.parse_url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
-
-    def parse_url_to_webserver(self, url):
-        http_pos = url.find("://")
-        if http_pos == -1:
-            temp = url
-        else:
-            temp = url[(http_pos + 3):]
-        webserver_pos = temp.find("/")
-        if webserver_pos == -1:
-            webserver_pos = len(temp)
-        return temp[:webserver_pos]
-
-    def check_for_content(self, url):
-        no_need_for_check = [".png", ".jpg", ".jpeg", ".js", ".cs", ".gif"]
-        if any (url.endswith(suffix) for suffix in no_need_for_check):
-            return False
-        else:
-            return True
+        return "GET " + url + " HTTP/1.1" + "\r\nHost:" + self.parser.url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
 
 # for calling class directly from terminal
 if __name__ == "__main__":
