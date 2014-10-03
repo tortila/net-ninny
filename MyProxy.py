@@ -34,7 +34,7 @@ BUFFER_SIZE = 16384
 DEFAULT_URL = "http://www.google.com"
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
 BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
-SUFFIXES = [".png", ".jpg", ".jpeg", ".js", ".cs", ".gif"]  # these files wil be skipped on contennt checking
+SUFFIXES = [".png", ".jpg", ".jpeg", ".js", ".cs", ".gif"]  # these files wil be skipped on content checking
 FILE_NAME = "forbidden.txt"     # file that contains forbidden keywords
 
 class MyProxy:
@@ -68,87 +68,85 @@ class MyProxy:
     def print_info(self, type, request, address):
         print address[0], "\t", type.upper(), "\t", request
 
-    def contains_keywords(self, string):
-        if any(s in string.lower() for s in self.reader.keywords):
-            return True
-        else:
-            return False
-
     def serve_connection(self, connection, client_addr):
         # receive a request from client
         data = connection.recv(BUFFER_SIZE)
         first_line = data.split("\n")[0]
-        # in case some requests were not caught
-        url = DEFAULT_URL
-        webserver = self.parser.url_to_webserver(url)
+        url = self.parser.get_url(first_line)
+        web_server = self.parser.url_to_web_server(url)
         badUrl = False
+
         # serve GET requests only
         if "GET" in first_line:
-            # remember url
-            url = first_line.split(" ")[1]
-            webserver = self.parser.url_to_webserver(url)
             self.print_info("request", first_line, client_addr)
             # check if url contains forbidden keywords
-            badUrl = self.contains_keywords(first_line)
+            badUrl = self.parser.contains_keywords(url, self.reader.keywords)
             if badUrl:
-                self.print_info("blacklisted", first_line, client_addr)
-
-        web_url = ""
-        # remember hostname and web_url of GET request
-        for line in data.split("\n"):
-            if "GET" in line:
-                web_url = line.split(" ")[1]
+                self.print_info("blacklisted", url, client_addr)
 
         # if requested for file other than on specified list, check its content later
-        content_check_needed = self.parser.check_for_content(web_url)
+        content_check_needed = self.parser.check_for_content(url)
 
-        # establish connection and send GET request
         try:
+            # open socket
             served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            served_socket.connect((webserver, HTTP_PORT))
+            # connect to web server over HTTP port
+            served_socket.connect((web_server, HTTP_PORT))
+            # if url contains forbidden keywords, redirect to web page with error msg
             if badUrl:
-                # create fake HTTP 301 response and send it to client -- redirection
+                # server-side can be closed, we won't use it anymore
                 served_socket.shutdown(socket.SHUT_RDWR)
+                # client-side can be closed for rcv()
                 connection.shutdown(socket.SHUT_RD)
+                # create fake HTTP 302 response and send it to client
                 connection.send(self.redirect_response(BAD_URL_HOST))
             else:
                 # send request to server
                 served_socket.send(data)
+                # assume website doesn't contain forbidden keywords
                 badContent = False
-                # receive chunk of response from web server
+                # receive chunks of response from web server
                 while 1:
                     new_chunk = served_socket.recv(BUFFER_SIZE)
+                    # if something was actually received
                     if len(new_chunk) > 0:
-                        # if needed, check for content
+                        # if not binary/css/js/... file, then check content for forbidden keywords
                         if content_check_needed:
                             for line in new_chunk.split("\n"):
-                                badContent = self.contains_keywords(line)
+                                badContent = self.parser.contains_keywords(line, self.reader.keywords)
+                                # if any of keywords was found, print info and stop checking
                                 if badContent:
-                                    print "\nBAD CONTENT DETECTED in line:\n" + line
+                                    self.print_info("bad content", url, client_addr)
                                     break  # break for-loop
                         if badContent:
+                            # in case of detecting forbidden keywords in web page:
+                            # close server-side (we won't use it anymore)
                             served_socket.shutdown(socket.SHUT_RDWR)
+                            # close client-side for rcv()
                             connection.shutdown(socket.SHUT_RD)
+                            # # create fake HTTP 302 response and send it to client
                             connection.send(self.redirect_response(BAD_CONTENT_HOST))
-                            break
                         else:
+                            # if web page doesn't contain forbidden keywords, send data to client
                             connection.send(new_chunk)
                     else:
-                        break  # break, because 0-length data was sent = close connection
-            print "\t> Closing socket..."
+                        # break, because 0-length data was sent = close connection
+                        break
+            # close server-side
             served_socket.close()
         except socket.error, (value, message):
             self.print_info("Peer reset", first_line, client_addr)
         finally:
+            # close client-side
             connection.close()
-            print "\t> Connection closed.\t> Thread exiting..."
+            print "\t> Connection closed. Thread exiting..."
+            # dispose of thread
             thread.exit()
 
+    # creates fake HTTP 302 response with redirection to url
     def redirect_response(self, url):
-        return "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\nHost: " + self.parser.url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
+        return "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\nHost: " + self.parser.url_to_web_server(url) + "\r\nConnection: close\r\n\r\n"
 
-    def get_request(self, url):
-        return "GET " + url + " HTTP/1.1" + "\r\nHost:" + self.parser.url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
 
 # for calling class directly from terminal
 if __name__ == "__main__":
