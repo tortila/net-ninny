@@ -35,7 +35,7 @@ DEFAULT_URL = "http://www.google.com"
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
 BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
 SUFFIXES = [".png", ".jpg", ".jpeg", ".js", ".cs", ".gif"]  # these files wil be skipped on contennt checking
-FILE_NAME = "forbidden.txt"
+FILE_NAME = "forbidden.txt"     # file that contains forbidden keywords
 
 class MyProxy:
 
@@ -94,18 +94,10 @@ class MyProxy:
                 self.print_info("blacklisted", first_line, client_addr)
 
         web_url = ""
-        hostname = ""
         # remember hostname and web_url of GET request
         for line in data.split("\n"):
             if "GET" in line:
                 web_url = line.split(" ")[1]
-            if "Host" in line:
-                hostname = line.split(" ")[1]
-
-        # if requested url contains forbidden keywords,
-        # create request for page with error message
-        if badUrl:
-            data = self.get_request(BAD_URL_HOST)
 
         # if requested for file other than on specified list, check its content later
         content_check_needed = self.parser.check_for_content(web_url)
@@ -114,36 +106,46 @@ class MyProxy:
         try:
             served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             served_socket.connect((webserver, HTTP_PORT))
-            # send request
-            served_socket.send(data)
-            badContent = False
-            # receive chunk of response from web server
-            while 1:
-                new_chunk = served_socket.recv(BUFFER_SIZE)
-                if len(new_chunk) > 0:
-                    # if needed, check for content
-                    if content_check_needed:
-                        for line in new_chunk.split("\n"):
-                            badContent = self.contains_keywords(line)
-                            if badContent:
-                                print "\nBAD CONTENT DETECTED\n"
-                                # send new get request
-                                served_socket.send(self.get_request(BAD_CONTENT_HOST))
-                                break  # break for-loop
-                    if not badContent:
-                        connection.send(new_chunk)
-                else:
-                    break  # break, because 0-length data was sent = close connection
+            if badUrl:
+                # create fake HTTP 301 response and send it to client -- redirection
+                served_socket.shutdown(socket.SHUT_RDWR)
+                connection.shutdown(socket.SHUT_RD)
+                connection.send(self.redirect_response(BAD_URL_HOST))
+            else:
+                # send request to server
+                served_socket.send(data)
+                badContent = False
+                # receive chunk of response from web server
+                while 1:
+                    new_chunk = served_socket.recv(BUFFER_SIZE)
+                    if len(new_chunk) > 0:
+                        # if needed, check for content
+                        if content_check_needed:
+                            for line in new_chunk.split("\n"):
+                                badContent = self.contains_keywords(line)
+                                if badContent:
+                                    print "\nBAD CONTENT DETECTED in line:\n" + line
+                                    break  # break for-loop
+                        if badContent:
+                            served_socket.shutdown(socket.SHUT_RDWR)
+                            connection.shutdown(socket.SHUT_RD)
+                            connection.send(self.redirect_response(BAD_CONTENT_HOST))
+                            break
+                        else:
+                            connection.send(new_chunk)
+                    else:
+                        break  # break, because 0-length data was sent = close connection
+            print "\t> Closing socket..."
             served_socket.close()
         except socket.error, (value, message):
             self.print_info("Peer reset", first_line, client_addr)
         finally:
             connection.close()
-            print "> Connection closed.\n\t> Thread exiting..."
+            print "\t> Connection closed.\t> Thread exiting..."
             thread.exit()
 
     def redirect_response(self, url):
-        return "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\nConnection: close\r\n\r\n"
+        return "HTTP/1.1 302 Found\r\nLocation: " + url + "\r\nHost: " + self.parser.url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
 
     def get_request(self, url):
         return "GET " + url + " HTTP/1.1" + "\r\nHost:" + self.parser.url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
