@@ -30,7 +30,7 @@ HOST = ""  # default; any address
 arbitrary_port = 9999  # default, should be changed on execution
 MAX_CONNECTIONS = 1000
 DEFAULT_URL = "https://www.google.se/?gfe_rd=cr&ei=OqUoVMbVKYmr8weTrILABA&gws_rd=ssl"
-BUFFER_SIZE = 8192
+BUFFER_SIZE = 16384
 BAD_URL_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html"
 BAD_CONTENT_HOST = "http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html"
 
@@ -67,20 +67,30 @@ class MyProxy:
     def print_info(self, type, request, address):
         print address[0], "\t", type.upper(), "\t", request
 
+    def contains_keywords(self, string):
+        if any(s in string.lower() for s in self.reader.keywords):
+            return True
+        else:
+            return False
+
     def serve_connection(self, connection, client_addr):
+        # receive a request from client
         data = connection.recv(BUFFER_SIZE)
         first_line = data.split("\n")[0]
         # in case some requests were not caught
         url = DEFAULT_URL
         webserver = self.parse_url_to_webserver(url)
         badUrl = False
+        # serve GET requests only
         if "GET" in first_line:
+            # remember url
             url = first_line.split(" ")[1]
             webserver = self.parse_url_to_webserver(url)
             self.print_info("request", first_line, client_addr)
-            if any (s in first_line for s in self.reader.keywords):
+            # check if url contains forbidden keywords
+            badUrl = self.contains_keywords(first_line)
+            if badUrl:
                 self.print_info("blacklisted", first_line, client_addr)
-                badUrl = True
 
         web_url = ""
         hostname = ""
@@ -94,64 +104,49 @@ class MyProxy:
         # if requested url contains forbidden keywords,
         # replace url and host in get request
         if badUrl:
-            data = data.replace(web_url, BAD_URL_HOST)
-            webserver = self.parse_url_to_webserver(BAD_URL_HOST)
-            data = data.replace(hostname, webserver)
+            data = self.get_request(BAD_URL_HOST)
+            print data
+        # if requested for file other than on specified list, check its content later
         content_check_needed = self.check_for_content(web_url)
+
         # establish connection and send GET request
         try:
             served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             served_socket.connect((webserver, HTTP_PORT))
+            # send request
             served_socket.send(data)
             badContent = False
+            # receive chunk of response from web server
             while 1:
-                # receive response to GET request from web server
-                response_data = served_socket.recv(BUFFER_SIZE)
-                # if needed, check for content
-                if content_check_needed:
-                    for line in response_data.split("\n"):
-                        if any (s in line.lower() for s in self.reader.keywords):
-                            badContent = True
-                            break  # break for-loop
-                    if badContent:
-                        break  # break while-loop
-                else:
-                    print ">> No checking for bad content for url: ", web_url
-                # if break wasn't executed (no bad content detected or no checking executed), send all data normally
-                if (len(response_data) > 0):
-                    # send to browser
-                    connection.send(response_data)
+                new_chunk = served_socket.recv(BUFFER_SIZE)
+                if len(new_chunk) > 0:
+                    # if needed, check for content
+                    if content_check_needed:
+                        for line in new_chunk.split("\n"):
+                            badContent = self.contains_keywords(line)
+                            if badContent:
+                                print "\nBAD CONTENT DETECTED\n"
+                                # send new get request
+                                served_socket.send(self.get_request(BAD_CONTENT_HOST))
+                                break  # break for-loop
+                    if not badContent:
+                        connection.send(new_chunk)
                 else:
                     break  # break, because 0-length data was sent = close connection
             served_socket.close()
-            if badContent:
-                # redirect connection and show web page with "bad content" error
-                data = data.replace(web_url, BAD_CONTENT_HOST)
-                webserver = self.parse_url_to_webserver(BAD_CONTENT_HOST)
-                data = data.replace(hostname, webserver)
-                try:
-                    # create new connection and sent GET request for web page with "bad content" error msg
-                    served_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    served_socket.connect((webserver, HTTP_PORT))
-                    served_socket.send(data)
-                    while 1:
-                        # receive response to GET request from web server
-                        response_data = served_socket.recv(BUFFER_SIZE)
-                        if (len(response_data) > 0):
-                            # send to browser
-                            connection.send(response_data)
-                        else:
-                            break  # break, because 0-length data was sent = close connection
-                    served_socket.close()
-                except socket.error:
-                    self.print_info("Peer reset", first_line, client_addr)
-
         except socket.error, (value, message):
             self.print_info("Peer reset", first_line, client_addr)
 
         finally:
             connection.close()
+            print "Connection closed.\nThread exiting..."
             thread.exit()
+
+    def bad_content_response(self):
+        return "HTTP/1.1 301 Moved Permanently\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/badtest1.html\nConnection: close"
+
+    def get_request(self, url):
+        return "GET " + url + " HTTP/1.1" + "\r\nHost:" + self.parse_url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
 
     def parse_url_to_webserver(self, url):
         http_pos = url.find("://")
