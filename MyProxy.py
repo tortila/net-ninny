@@ -143,7 +143,7 @@ class MyProxy:
             thread.exit()
 
     def bad_content_response(self):
-        return "HTTP/1.1 301 Moved Permanently\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/badtest1.html\nConnection: close"
+        return "HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/badtest1.html\r\nConnection: close\r\n\r\n"
 
     def get_request(self, url):
         return "GET " + url + " HTTP/1.1" + "\r\nHost:" + self.parse_url_to_webserver(url) + "\r\nConnection: close\r\n\r\n"
