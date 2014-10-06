@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 https://www.ida.liu.se/~TDTS06/labs/2014/NetNinny/default.html
 
