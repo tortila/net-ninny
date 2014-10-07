@@ -15,7 +15,7 @@ class Parser:
         web_server_pos = temp.find("/")
         if web_server_pos == -1:
             web_server_pos = len(temp)
-        return temp[:web_server_pos]
+        return temp[:web_server_pos].split(":")[0]
 
     # return False if client requested for file that ends with suffix specified in SUFFIXES list
     def check_for_content(self, url):
@@ -25,12 +25,24 @@ class Parser:
             return True
 
     # return True if any of the keywords was found in string
-    def contains_keywords(self, string, keywords):
-        if any(s in string.lower() for s in keywords):
+    def contains_keywords(self, line, keywords):
+        # check keywords consisting of 2+ words
+        for seq in keywords:
+            if len(seq.split(" ")) > 1:
+                if all(s in line.lower() for s in seq.split(" ")):
+                    return True
+        # check keywords consisting of 1 word only
+        if any(seq in line.lower() for seq in keywords):
             return True
-        else:
-            return False
+        # if none detected, return False
+        return False
 
     # parse first line of request to get the url
-    def get_url(self, string):
-        return string.split(" ")[1]
+    def get_url(self, first_line):
+        url = ""
+        try:
+            url = first_line.split(" ")[1]
+        except IndexError:
+            print "IndexError in line: ", first_line
+        finally:
+            return url
